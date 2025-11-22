@@ -1,50 +1,80 @@
 ---
 - name: Deploy Docker container on all VMs
   hosts: all
-  become: yes
+  become: true
   tasks:
-    - name: Check if docker installed (CentOS)
+    # --- Docker installation ---
+    - name: Install Docker on CentOS
       when: ansible_os_family == "RedHat"
-      command: docker --version
-      register: docker_installed
-      ignore_errors: true
-
-    - name: Install Docker (CentOS)
-      when: ansible_os_family == "RedHat" and docker_installed.failed
       shell: |
         curl -fsSL https://get.docker.com/ | sh
 
-    - name: Install Docker (Ubuntu)
+    - name: Install Docker on Ubuntu
       when: ansible_os_family == "Debian"
       apt:
         name: docker.io
         state: present
         update_cache: yes
 
+    # --- Python Docker SDK installation ---
+    - name: Install pip3 on Ubuntu
+      when: ansible_os_family == "Debian"
+      apt:
+        name: python3-pip
+        state: present
+        update_cache: yes
+
+    - name: Install Python Docker SDK on Ubuntu
+      when: ansible_os_family == "Debian"
+      apt:
+        name: python3-docker
+        state: present
+        update_cache: yes
+
+    - name: Install pip3 on CentOS
+      when: ansible_os_family == "RedHat"
+      yum:
+        name: python3-pip
+        state: present
+
+    - name: Install Python Docker SDK on CentOS
+      when: ansible_os_family == "RedHat"
+      command: pip3 install docker --break-system-packages
+      args:
+        creates: /usr/local/lib/python3.*/site-packages/docker
+
+    # --- Start Docker service ---
     - name: Start docker
       service:
         name: docker
         state: started
         enabled: yes
 
+    # --- Load and run container ---
     - name: Copy docker tarball to remote host
       copy:
         src: "{{ playbook_dir }}/portfolio-app.tar"
         dest: /tmp/portfolio-app.tar
 
-    - name: Load docker image
-      community.docker.docker_image:
-        name: docker.io/library/portfolio-app:latest
-        tag: latest
-        source: load
-        load_path: /tmp/portfolio-app.tar
-        state: present
+    - name: Load docker image from tarball
+      command: docker load -i /tmp/portfolio-app.tar
+      register: load_result
 
-    - name: Run portfolio-app container
+    - name: Run portfolio-app container on Ubuntu/Debian
+      when: ansible_os_family == "Debian"
       community.docker.docker_container:
         name: portfolio-app
-        image: docker.io/library/portfolio-app:latest
+        image: portfolio-app:latest
         state: started
         restart_policy: always
-        ports:
+        published_ports:
           - "83:80"
+
+    - name: Run portfolio-app container on CentOS
+      when: ansible_os_family == "RedHat"
+      command: >
+        docker run -d --name portfolio-app
+        --restart always -p 83:80 portfolio-app:latest
+
+
+

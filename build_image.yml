@@ -1,27 +1,41 @@
 ---
-- name: Build docker image for web app
-  hosts: localhost
-  gather_facts: yes
-  become: yes
+- name: Build Docker Image for Portfolio App
+  hosts: Workstation
   connection: local
-  tasks:
-    - name: Install docker
-      when: ansible_os_family == "Debian"
-      apt:
-        name: docker.io
-        state: present
-        update_cache: yes
+  gather_facts: false
+  become: true
 
-    - name: Build docker image
+  vars:
+    image_name: portfolio-app
+    image_tag: latest
+    tarball_path: /tmp/portfolio-app.tar   # use /tmp which always exists
+
+  tasks:
+    - name: Build the Docker image from the Dockerfile
       community.docker.docker_image:
-        name: portfolio-webapp
-        tag: latest
+        name: "{{ image_name }}"
+        tag: "{{ image_tag }}"
+        source: build
         build:
           path: .
           dockerfile: dockerfile
-          nocache: yes
-        source: build
-        force_source: yes
+        state: present
+      register: build_result
+      failed_when: build_result.failed
 
-    - name: Save docker to tarball
-      command: docker save portfolio-app:latest -o ./portfolio-webapp.tar
+    - name: Display build status
+      debug:
+        msg: "Docker image '{{ image_name }}:{{ image_tag }}' built successfully."
+      when: build_result.changed
+
+    - name: Save docker image to tarball
+      command: docker save -o {{ tarball_path }} {{ image_name }}:{{ image_tag }}
+
+    - name: Fetch tarball back to control machine
+      fetch:
+        src: "{{ tarball_path }}"
+        dest: "./portfolio-app.tar"
+        flat: yes
+
+
+
